@@ -11,13 +11,10 @@ from .serializers import SignupSerializer
 
 class SignupAPIView(APIView):
     permission_classes = [AllowAny]
-    print("---"*18)
     def post(self, request):
         serializer = SignupSerializer(data=request.data)
-        print("---"*2)
         if serializer.is_valid(raise_exception=True):
             user = serializer.save()
-            print("---"*3)
             return Response(
                 {
                     "msg": "signup 성공",
