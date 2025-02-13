@@ -9,7 +9,7 @@ from .rag_utils import retrieve_relevant_lotto_info
 import openai, os
 from dotenv import load_dotenv
 
-# .env 파일에서 환경 변수 로드
+# .env 파일에서 환경 변수 로드 1
 load_dotenv()
 
 # API Key 설정
