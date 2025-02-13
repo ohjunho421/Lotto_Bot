@@ -1,6 +1,10 @@
 # Created by https://www.toptal.com/developers/gitignore/api/django,windows,macos,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=django,windows,macos,python
 
+#백터디비
+chromadb_data
+
+
 ### Django ###
 *.log
 *.pot
@@ -8,6 +12,7 @@
 __pycache__/
 local_settings.py
 db.sqlite3
+Lottobot/db.sqlite3
 db.sqlite3-journal
 media
 
@@ -133,12 +138,14 @@ celerybeat.pid
 
 # Environments
 .env
+../.env
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+../venv
 
 # Spyder project settings
 .spyderproject
