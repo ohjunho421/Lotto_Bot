@@ -1,6 +1,11 @@
 # Created by https://www.toptal.com/developers/gitignore/api/django,windows,macos,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=django,windows,macos,python
 
+# 죵욜이가 추가함
+data
+Lotto_history_vector_store
+
+
 ### Django ###
 *.log
 *.pot
