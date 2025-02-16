@@ -60,6 +60,8 @@ retriever = vector_store.as_retriever()
 
 
 # 프롬프트 템플릿 설정 -> 사용자가 전략 추가하게하면 전략별로 prompt1, prompt2, prompt3, ... 이런식으로 추가하면 어떨까?? 생각중
+# llm 모델이 유사도기반으로 추론을 하지 패턴분석 및 통계적 인사이트를 가지기엔 아직 부족함이 많음
+# 준호님이 ML 돌린거 or 직접 패턴분석 or 통계적 분석후 결과를 프롬프트에 전달해서 추천해달라고 하는게 베스트
 prompt = ChatPromptTemplate.from_template(
     """
 당신은 예상 로또당첨번호를 추천해주는 챗봇입니다.
