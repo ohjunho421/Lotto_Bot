@@ -38,6 +38,7 @@ INSTALLED_APPS = [
    'django.contrib.sessions',
    'django.contrib.messages',
    'django.contrib.staticfiles',
+   'django_crontab',
 
    # Third Party Apps
    'rest_framework',
@@ -48,28 +49,12 @@ INSTALLED_APPS = [
    # Local Apps
    'accounts',
    'chatbot.apps.ChatbotConfig',
-   #'django_celery_beat',
 ]
 
-# Celery 설정
-# CELERY_BROKER_URL = 'redis://localhost:6379/0'
-# CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
-# CELERY_ACCEPT_CONTENT = ['json']
-# CELERY_TASK_SERIALIZER = 'json'
-# CELERY_RESULT_SERIALIZER = 'json'
-# CELERY_TIMEZONE = 'Asia/Seoul'
+CRONJOBS = [
+    ('0 22 * * 6', 'chatbot.cron.update_lotto_data')  # 매주 토요일 22:00에 실행
+]
 
-# # Celery Beat 스케줄 설정
-# CELERY_BEAT_SCHEDULE = {
-#    'crawl-lotto-numbers': {
-#        'task': 'chatbot.tasks.update_lotto_data',
-#        'schedule': crontab(day_of_week='saturday', hour='22', minute='0'),
-#    },
-#    'train-ml-model': {
-#        'task': 'chatbot.tasks.train_ml_model',
-#        'schedule': crontab(day_of_week='saturday', hour='22', minute='30'),
-#    },
-# }
 
 # 미들웨어 설정
 MIDDLEWARE = [

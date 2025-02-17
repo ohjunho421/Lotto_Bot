@@ -109,8 +109,6 @@ class LottoDataCollector:
             logger.error(f"초기 데이터 수집 중 오류 발생: {str(e)}")
             return None
 
-    # services.py 파일 내 LottoDataCollector 클래스의 메서드들
-
     def _parse_date(self, date_text):
         """크롤링한 날짜를 YYYY.MM.DD 형식으로 변환"""
         try:
