@@ -1,9 +1,9 @@
 from django.contrib import admin
 from django.urls import path, include
-from chatbot.views import ChatbotHomeView  # ChatbotHomeView 가져오기
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("", ChatbotHomeView.as_view(), name="home"),  # 기본 URL에 ChatbotHomeView 연결
-    path("api/chatbot/", include("chatbot.urls")),     # ChatGPT API 연결
-]
+    path('admin/', admin.site.urls),
+    path('', include('chatbot.urls')),  # chatbot 앱의 모든 URL을 포함
+] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
