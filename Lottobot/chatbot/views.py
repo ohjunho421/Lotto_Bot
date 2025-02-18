@@ -86,6 +86,17 @@ Context: {context}
 Answer: """
 )
 
+prompt1 = ChatPromptTemplate.from_template(
+    """
+너는 로또 데이터 전문가야.
+로또 관련질문이 오면 검색된 데이터를 기반으로 답변해야해.
+답변할땐 어떤 데이터가 근거로 사용되었는지 같이 설명해야해.
+
+Question: {question}
+Context: {context}
+Answer: """
+)
+
 class ChatbotAPIView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -117,7 +128,7 @@ class ChatbotAPIView(APIView):
                 llm = ChatOpenAI(model="gpt-4o-mini")       
                 
                 # RAG 실행
-                chain = prompt | llm
+                chain = prompt1 | llm
                 ai_response = chain.invoke({"context": context, "question": user_input}).content
                 
             except Exception as e:
