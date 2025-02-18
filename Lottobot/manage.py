@@ -3,6 +3,16 @@
 import os
 import sys
 
+def delete_pycache(base_dir):
+    for root, dirs, files in os.walk(base_dir):
+        for dir_name in dirs:
+            if dir_name == "__pycache__":
+                pycache_path = os.path.join(root, dir_name)
+                for pycache_file in os.listdir(pycache_path):
+                    os.remove(os.path.join(pycache_path, pycache_file))
+                os.rmdir(pycache_path)
+
+delete_pycache(os.path.dirname(os.path.abspath(__file__)))
 
 def main():
     """Run administrative tasks."""
