@@ -54,55 +54,6 @@ class ChatAPIView(View):
             "당첨의 행운이 함께하시길 진심으로 바랍니다! 💫"
         ]
 
-    def _process_strategy_counts(self, user_message):
-        """Parse strategy counts from user message"""
-        strategy_counts = {'1': 0, '2': 0}
-        
-        try:
-            message = user_message.lower()
-            
-            # 숫자 추출 (마지막 숫자만)
-            count = 0
-            numbers = ''.join(c for c in message if c.isdigit())
-            if len(numbers) >= 1:
-                # 전략 번호를 제외한 숫자 추출
-                if message.startswith(('전략1', '전략2', '1번', '2번')):
-                    count = int(numbers[1:]) if len(numbers) > 1 else 0
-                else:
-                    count = int(numbers)
-
-            # 전략 확인
-            if any(pattern in message for pattern in ["전략1", "전략 1", "1번 전략", "1번전략"]):
-                strategy_counts['1'] = count
-            elif any(pattern in message for pattern in ["전략2", "전략 2", "2번 전략", "2번전략"]):
-                strategy_counts['2'] = count
-            
-            logger.info(f"Processed strategy counts: {strategy_counts}")
-            return strategy_counts
-                
-        except Exception as e:
-            logger.error(f"Error processing strategy counts: {e}")
-            return strategy_counts
-
-    def _format_recommendations(self, recommendations, strategy_num, num_sets):
-        """Format lottery number recommendations with better readability"""
-        number_sets = []
-        for i, (strategy, numbers) in enumerate(recommendations, 1):
-            number_sets.append(f"□ {i}세트: {', '.join(map(str, numbers))}")
-        
-        lucky_message = random.choice(self.lucky_messages)
-        
-        formatted_message = f"""[{strategy_num}번 전략의 번호를 추천해드리겠습니다]
-
-====================================
-
-{chr(10).join(number_sets)}
-
-====================================
-
-▶ {lucky_message}"""
-        return formatted_message
-
     def _get_gpt_response(self, user_message):
         """Get response from GPT API"""
         try:
@@ -118,119 +69,177 @@ class ChatAPIView(View):
 원하시는 전략을 선택해주세요! 
 최대 5세트까지 추천 가능합니다.
 
-(예: "전략1로 3세트 추천해주세요" 또는 "전략1 2세트, 전략2 3세트 추천해주세요")
+(예: "전략1로 3세트 추천해주세요" 또는 "전략1 3세트, 전략2 2세트 추천해주세요")
 """
+            messages = [
+                {"role": "system", "content": system_prompt},
+                *self.conversation_history,
+                {"role": "user", "content": user_message}
+            ]
+
             response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    *self.conversation_history
-                ],
+                model="gpt-3.5-turbo",
+                messages=messages,
                 temperature=0.7
             )
             return response.choices[0].message.content
             
-        except (APIError, APITimeoutError, RateLimitError, Exception) as gpt_error:
-            logger.error(f"GPT Error: {str(gpt_error)}")
-            error_message = "죄송합니다. 서버 연결에 문제가 발생했습니다."
-            if isinstance(gpt_error, RateLimitError):
-                error_message = "죄송합니다. 잠시 후 다시 시도해주세요."
-            raise Exception(error_message)
+        except Exception as e:
+            logger.error(f"GPT Error: {str(e)}")
+            raise Exception("죄송합니다. 서버 연결에 문제가 발생했습니다.")
+
+    def _process_strategy_counts(self, user_message):
+        """Parse strategy counts from user message"""
+        strategy_counts = {'1': 0, '2': 0}
+        
+        try:
+            message = user_message.lower()
+            words = message.split()
+            
+            i = 0
+            while i < len(words):
+                current_word = words[i]
+                
+                # 전략1/1번전략 처리
+                if any(pattern in current_word for pattern in ["전략1", "1번전략", "1번"]):
+                    if i + 1 < len(words):
+                        next_word = words[i + 1]
+                        number = ''.join(filter(str.isdigit, next_word))
+                        if number:
+                            count = int(number)
+                            if count > 5:
+                                logger.warning(f"Strategy 1 requested {count} sets (exceeds limit)")
+                                return {'1': 0, '2': 0}  # 제한 초과 시 0 반환
+                            strategy_counts['1'] = count
+                            
+                # 전략2/2번전략 처리
+                elif any(pattern in current_word for pattern in ["전략2", "2번전략", "2번"]):
+                    if i + 1 < len(words):
+                        next_word = words[i + 1]
+                        number = ''.join(filter(str.isdigit, next_word))
+                        if number:
+                            count = int(number)
+                            if count > 5:
+                                logger.warning(f"Strategy 2 requested {count} sets (exceeds limit)")
+                                return {'1': 0, '2': 0}  # 제한 초과 시 0 반환
+                            strategy_counts['2'] = count
+                
+                i += 1
+            
+            total_sets = sum(strategy_counts.values())
+            if total_sets > 5:
+                logger.warning(f"Total sets {total_sets} exceeds limit")
+                return {'1': 0, '2': 0}  # 전체 세트 수 제한 초과 시 0 반환
+                
+            logger.info(f"Processed strategy counts: {strategy_counts}")
+            logger.info(f"Total sets requested: {total_sets}")
+            
+            return strategy_counts
+                
+        except Exception as e:
+            logger.error(f"Error processing strategy counts: {e}")
+            return strategy_counts
+
+    def _format_recommendations(self, recommendations, strategy_num=None, num_sets=None):
+        """Format lottery number recommendations with better readability"""
+        # 전략별로 번호를 분류
+        strategy1_sets = []
+        strategy2_sets = []
+        
+        for strategy, numbers in recommendations:
+            if strategy == 1:
+                strategy1_sets.append(f"□ {len(strategy1_sets)+1}세트: {', '.join(map(str, numbers))}")
+            else:
+                strategy2_sets.append(f"□ {len(strategy2_sets)+1}세트: {', '.join(map(str, numbers))}")
+        
+        formatted_message = ""
+        
+        # 전략 1 결과가 있으면 추가
+        if strategy1_sets:
+            formatted_message += """[전략 1: 자주 당첨된 번호 기반 추천]
+
+====================================
+
+{}
+
+====================================""".format('\n'.join(strategy1_sets))
+
+        # 두 전략 모두 있으면 구분선 추가
+        if strategy1_sets and strategy2_sets:
+            formatted_message += "\n\n"
+
+        # 전략 2 결과가 있으면 추가
+        if strategy2_sets:
+            formatted_message += """[전략 2: 잠재력 있는 번호 기반 추천]
+
+====================================
+
+{}
+
+====================================""".format('\n'.join(strategy2_sets))
+
+        # 행운 메시지 추가
+        lucky_message = random.choice(self.lucky_messages)
+        formatted_message += f"\n\n▶ {lucky_message}"
+        
+        return formatted_message
 
     def post(self, request, *args, **kwargs):
-        """Handle POST requests"""
         try:
-            # Parse request data
             data = json.loads(request.body)
             user_message = data.get('message', '').strip()
             logger.info(f"Received message: {user_message}")
 
             if not user_message:
-                logger.warning("Empty message received")
                 return JsonResponse({'response': '메시지를 입력해주세요.'}, status=400)
 
-            # Update conversation history
-            self.conversation_history.append({"role": "user", "content": user_message})
-
-            try:
-                # Get GPT response
-                assistant_message = self._get_gpt_response(user_message)
-                logger.info(f"GPT Response: {assistant_message}")
-                self.conversation_history.append({"role": "assistant", "content": assistant_message})
-                
-            except Exception as gpt_error:
-                logger.error(f"GPT Error: {str(gpt_error)}", exc_info=True)
-                return JsonResponse({'response': str(gpt_error)}, status=500)
-
-            # Process strategy counts if needed
+            # 전략 키워드가 있는 경우 GPT 응답 스킵하고 바로 번호 추천 처리
             if "전략" in user_message.lower():
                 try:
                     strategy_counts = self._process_strategy_counts(user_message)
-                    logger.info(f"Processed strategy counts: {strategy_counts}")
                     total_sets = sum(strategy_counts.values())
-                    logger.info(f"Total sets: {total_sets}")
 
                     if total_sets == 0:
-                        logger.warning("No sets requested")
                         return JsonResponse({
-                            'response': '세트 수를 정확히 입력해주세요. (예: "전략1로 3세트 추천해주세요")'
+                            'response': '최대 5세트까지 추천가능합니다.\n세트 수를 정확히 입력해주세요. (예: "전략1로 3세트 추천해주세요")'
                         }, status=400)
                     
-                    # 각 전략별로 세트 수 체크
-                    for strategy, count in strategy_counts.items():
-                        if count > 5:
-                            logger.warning(f"Strategy {strategy} requested {count} sets (exceeds limit)")
-                            return JsonResponse({
-                                'response': '죄송합니다. 한 번에 최대 5세트까지 추천 가능합니다. 다시 요청해주시겠어요?'
-                            }, status=200)
-                    
-                    # 전체 세트 수가 6 이상인 경우만 체크
                     if total_sets > 5:
-                        logger.warning(f"Total sets {total_sets} exceeds limit")
                         return JsonResponse({
                             'response': '죄송합니다. 최대 5세트까지만 추천 가능합니다.\n전략1과 전략2를 조합해서 5세트를 추천해드릴까요?\n(예: "전략1 3세트, 전략2 2세트")'
                         }, status=200)
 
                     recommendations, error = get_recommendation(strategy_counts)
-                    logger.info(f"Recommendations received: {recommendations}, Error: {error}")
                     
                     if error:
-                        logger.error(f"Recommendation error: {error}")
                         return JsonResponse({'response': error}, status=400)
 
                     if not recommendations:
-                        logger.error("Empty recommendations received")
                         return JsonResponse({'response': '번호 추천 중 오류가 발생했습니다.'}, status=400)
 
-                    # 어떤 전략을 사용했는지 확인
-                    strategy_num = '1' if strategy_counts['1'] > 0 else '2'
-                    num_sets = strategy_counts[strategy_num]
-                    logger.info(f"Using strategy {strategy_num} for {num_sets} sets")
+                    # 번호 추천 결과만 반환
+                    response_message = self._format_recommendations(recommendations)
+                    return JsonResponse({'response': response_message}, status=200)
                     
-                    assistant_message = self._format_recommendations(recommendations, strategy_num, num_sets)
-                    logger.info("Successfully formatted recommendations")
-                
-                except ValueError as ve:
-                    logger.error(f"Value Error in processing strategy: {str(ve)}", exc_info=True)
-                    return JsonResponse({
-                        'response': '세트 수를 정확히 입력해주세요. (예: "전략1로 3세트 추천해주세요")'
-                    }, status=400)
                 except Exception as e:
-                    logger.error(f"Error in processing strategy: {str(e)}", exc_info=True)
+                    logger.error(f"Error in processing strategy: {str(e)}")
                     return JsonResponse({
                         'response': '번호 추천 처리 중 오류가 발생했습니다.'
                     }, status=400)
+            
+            # 전략 키워드가 없는 경우만 GPT 응답 처리
+            else:
+                try:
+                    assistant_message = self._get_gpt_response(user_message)
+                    return JsonResponse({'response': assistant_message}, status=200)
+                except Exception as e:
+                    logger.error(f"GPT Error: {str(e)}")
+                    return JsonResponse({'response': str(e)}, status=500)
 
-            return JsonResponse({'response': assistant_message}, status=200)
-
-        except json.JSONDecodeError as je:
-            logger.error(f"JSON Decode Error: {str(je)}", exc_info=True)
-            return JsonResponse({
-                'response': '잘못된 요청 형식입니다.'
-            }, status=400)
+        except json.JSONDecodeError:
+            return JsonResponse({'response': '잘못된 요청 형식입니다.'}, status=400)
         except Exception as e:
-            logger.error(f"Error in ChatAPIView: {str(e)}", exc_info=True)
+            logger.error(f"Error in ChatAPIView: {str(e)}")
             return JsonResponse({
-                'response': '서버 에러가 발생했습니다. 잠시 후 다시 시도해주세요.',
-                'error': str(e)
+                'response': '서버 에러가 발생했습니다. 잠시 후 다시 시도해주세요.'
             }, status=500)
