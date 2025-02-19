@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 import requests
+import json
 from bs4 import BeautifulSoup
 from django.conf import settings
 from sklearn.linear_model import LogisticRegression
@@ -240,6 +241,29 @@ class LottoPredictor:
         self.model_file = os.path.join(settings.BASE_DIR, 'data', 'lotto_model.pkl')
         self.scaler_file = os.path.join(settings.BASE_DIR, 'data', 'lotto_scaler.pkl')
         self.stats_file = os.path.join(settings.BASE_DIR, 'data', 'model_stats.json')
+        self.recent_data = None
+        self.recent_features = None
+
+    def prepare_features(self, df):
+        """특성 데이터 준비"""
+        try:
+            # 데이터프레임을 회차 기준으로 정렬
+            df = df.sort_values('회차', ascending=False).reset_index(drop=True)
+            features = []
+            
+            for i in range(len(df) - 5):  # 최근 5회차 데이터 사용
+                recent_numbers = []
+                for j in range(5):
+                    row = df.iloc[i + j]
+                    numbers = [row[str(k)] for k in range(1, 7)]  # 1~6번 번호
+                    numbers.append(row['보너스'])  # 보너스 번호 추가
+                    recent_numbers.extend(numbers)
+                features.append(recent_numbers)
+            
+            return np.array(features)
+        except Exception as e:
+            logger.error(f"특성 데이터 준비 중 오류: {str(e)}")
+            raise  # 오류를 상위로 전파하여 train_model에서 처리
 
     def save_model(self):
         """학습된 모델 저장"""
@@ -248,14 +272,14 @@ class LottoPredictor:
             dump(self.model, self.model_file)
             dump(self.scaler, self.scaler_file)
             
-            # 모델 학습 통계 저장
             stats = {
                 'last_trained': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'data_size': len(self.recent_data),
-                'feature_size': self.recent_features.shape[1] if hasattr(self, 'recent_features') else 0
+                'data_size': len(self.recent_data) if self.recent_data is not None else 0,
+                'feature_size': self.recent_features.shape[1] if self.recent_features is not None else 0
             }
-            with open(self.stats_file, 'w') as f:
-                json.dump(stats, f)
+            
+            with open(self.stats_file, 'w', encoding='utf-8') as f:
+                json.dump(stats, f, ensure_ascii=False, indent=2)
                 
             logger.info("모델 저장 완료")
             return True
@@ -277,35 +301,56 @@ class LottoPredictor:
             return False
 
     def train_model(self):
-        """모델 학습"""
+        """모델 학습 및 R2 점수 계산"""
         try:
             if not os.path.exists(settings.LOTTO_DATA_FILE):
                 logger.error("데이터 파일이 존재하지 않습니다")
                 return False
 
             df = pd.read_csv(settings.LOTTO_DATA_FILE)
+            if len(df) < 6:
+                logger.error("학습에 필요한 최소 데이터가 부족합니다")
+                return False
+
             self.recent_data = df
             logger.info(f"데이터 로드 완료: {len(df)}개의 데이터")
 
             X = self.prepare_features(df)
+            if len(X) == 0:
+                logger.error("특성 데이터 준비 실패")
+                return False
+
             self.recent_features = X
             logger.info(f"특성 데이터 준비 완료: {X.shape}")
 
             y = []
             for i in range(len(df) - 5):
-                next_number = df.iloc[i]['1']  # 다음 회차의 첫 번째 번호
+                next_number = df.iloc[i]['1']
                 y.append(next_number)
             y = np.array(y)
 
-            X = self.scaler.fit_transform(X)
-            self.model.fit(X, y)
+            # 데이터를 학습용과 테스트용으로 분할 (예: 80% 학습, 20% 테스트)
+            from sklearn.model_selection import train_test_split
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            # 데이터 스케일링
+            X_train_scaled = self.scaler.fit_transform(X_train)
+            X_test_scaled = self.scaler.transform(X_test)
+
+            # 모델 학습
+            self.model.fit(X_train_scaled, y_train)
+
+            # R2 점수 계산
+            train_score = self.model.score(X_train_scaled, y_train)
+            test_score = self.model.score(X_test_scaled, y_test)
             
-            # 학습 완료 후 모델 저장
+            logger.info(f"학습 데이터 R2 점수: {train_score:.4f}")
+            logger.info(f"테스트 데이터 R2 점수: {test_score:.4f}")
+
             self.save_model()
-            
             logger.info("모델 학습 및 저장 완료")
             return True
-            
+
         except Exception as e:
             logger.error(f"모델 학습 중 오류 발생: {str(e)}")
             return False
@@ -313,24 +358,35 @@ class LottoPredictor:
     def predict_probabilities(self):
         """각 번호의 출현 확률 예측"""
         try:
-            # 저장된 모델이 없으면 새로 학습
             if not self.load_model():
                 if not self.train_model():
-                    return np.ones(45) / 45
+                    return np.ones(45) / 45  # 45개의 번호에 대한 균등 확률 반환
 
             df = pd.read_csv(settings.LOTTO_DATA_FILE)
             latest_features = self.prepare_features(df)[-1:]
             latest_features = self.scaler.transform(latest_features)
+            
+            # 각 클래스(번호)에 대한 확률 계산
+            probabilities = np.zeros(45)  # 1~45까지의 번호에 대한 확률 배열
             probs = self.model.predict_proba(latest_features)
-            return np.mean(probs, axis=0)
+            
+            # 모델이 예측한 클래스들에 대해서만 확률 할당
+            for i, class_idx in enumerate(self.model.classes_):
+                if 1 <= class_idx <= 45:  # 유효한 로또 번호 범위 확인
+                    probabilities[class_idx-1] = probs[0][i]
+            
+            # 확률 정규화
+            probabilities = probabilities / np.sum(probabilities)
+            
+            return probabilities
+            
         except Exception as e:
             logger.error(f"예측 중 오류 발생: {str(e)}")
-            return np.ones(45) / 45
+            return np.ones(45) / 45  # 오류 발생 시 균등 확률 반환
 
 def get_recommendation(strategy_counts):
     """전략별 로또 번호 추천"""
     try:
-        # 데이터 파일 확인 및 로드
         if not os.path.exists(settings.LOTTO_DATA_FILE):
             logger.info("데이터 파일이 없습니다. 초기 데이터를 수집합니다.")
             collector = LottoDataCollector()
@@ -354,48 +410,83 @@ def get_recommendation(strategy_counts):
         predicted_probs = predictor.predict_probabilities()
         
         recommendations = []
+        previous_selections = set()  # 이전 추천 번호들 저장
+
         for strategy, count in strategy_counts.items():
             strategy = int(strategy)
             for _ in range(count):
+                candidates = []
                 if strategy == 1:
-                    # 전략 1: 평균 이상 출현하는 번호들
-                    candidates = [n for n in range(1, 46) if number_counts.get(n, 0) >= mean_freq]
+                    # 전략 1: 자주 출현하는 번호들 (상위 60% 범위로 확대)
+                    threshold = np.percentile(list(number_counts.values), 40)  # 상위 60%
+                    candidates = [n for n in range(1, 46) if number_counts.get(n, 0) >= threshold]
                 else:
-                    # 전략 2: 평균 ~ (평균-표준편차) 구간의 번호들
-                    candidates = [n for n in range(1, 46) if mean_freq > number_counts.get(n, 0) >= (mean_freq - std_freq)]
+                    # 전략 2: 평균 주변 구간의 번호들
+                    candidates = [n for n in range(1, 46) if (mean_freq + 0.5 * std_freq) > number_counts.get(n, 0) >= (mean_freq - std_freq)]
                 
-                # 출현 빈도와 ML 예측 확률을 결합한 가중치 계산
+                if not candidates:  # 후보 번호가 부족한 경우
+                    candidates = list(range(1, 46))  # 모든 번호를 후보로 사용
+                
+                # 가중치 계산
                 if strategy == 1:
-                    freq_weights = [(number_counts.get(n, 0) - mean_freq) / (number_counts.max() - mean_freq) for n in candidates]
+                    freq_weights = [(number_counts.get(n, 0) - threshold + std_freq) / (number_counts.max() - threshold + std_freq) for n in candidates]
                 else:
-                    freq_weights = [(mean_freq - number_counts.get(n, 0)) / mean_freq for n in candidates]
+                    freq_weights = [(mean_freq - number_counts.get(n, 0) + std_freq) / (mean_freq + std_freq) for n in candidates]
                 
                 ml_weights = [predicted_probs[n-1] for n in candidates]
                 
-                # 두 가중치를 동일 비율로 결합 (0.5:0.5)
-                weights = [0.5 * fw + 0.5 * mw for fw, mw in zip(freq_weights, ml_weights)]
+                # 이전 선택된 번호에 대한 페널티 적용
+                penalty = [0.7 if n in previous_selections else 1.0 for n in candidates]
+                
+                # 최종 가중치 계산 (빈도:ML예측:랜덤성 = 4:4:2 비율)
+                weights = [0.4 * fw + 0.4 * mw + 0.2 * np.random.random() for fw, mw in zip(freq_weights, ml_weights)]
+                weights = np.multiply(weights, penalty)  # 페널티 적용
                 weights = np.array(weights) / np.sum(weights)  # 정규화
 
                 # 구간별 번호 선택
                 selected = []
                 ranges = [(1,15), (16,30), (31,45)]
-                for start, end in ranges:
+                numbers_per_range = [2, 2, 2]
+                
+                # 구간별 선택 수 랜덤 조정
+                while sum(numbers_per_range) > 6:
+                    idx = np.random.randint(0, 3)
+                    if numbers_per_range[idx] > 1:
+                        numbers_per_range[idx] -= 1
+
+                for (start, end), n_select in zip(ranges, numbers_per_range):
                     range_candidates = [n for n in candidates if start <= n <= end]
                     if range_candidates:
                         range_weights = [weights[candidates.index(n)] for n in range_candidates]
                         range_weights = np.array(range_weights) / np.sum(range_weights)
-                        n_select = min(2, len(range_candidates))
-                        selected.extend(np.random.choice(range_candidates, n_select, replace=False, p=range_weights))
+                        try:
+                            selected.extend(np.random.choice(range_candidates, 
+                                                            min(n_select, len(range_candidates)), 
+                                                            replace=False, 
+                                                            p=range_weights))
+                        except ValueError:  # 구간에 충분한 번호가 없는 경우
+                            selected.extend(np.random.choice(range_candidates, 
+                                                            min(n_select, len(range_candidates)), 
+                                                            replace=True))
 
                 # 남은 자리 채우기
                 remaining = 6 - len(selected)
                 if remaining > 0:
                     remaining_candidates = [n for n in candidates if n not in selected]
+                    if not remaining_candidates:  # 남은 후보가 없는 경우
+                        remaining_candidates = [n for n in range(1, 46) if n not in selected]
+                    
                     if remaining_candidates:
-                        remaining_weights = [weights[candidates.index(n)] for n in remaining_candidates]
+                        remaining_weights = [weights[candidates.index(n)] if n in candidates else 1.0/len(candidates) 
+                                               for n in remaining_candidates]
                         remaining_weights = np.array(remaining_weights) / np.sum(remaining_weights)
-                        selected.extend(np.random.choice(remaining_candidates, remaining, replace=False, p=remaining_weights))
+                        selected.extend(np.random.choice(remaining_candidates, 
+                                                        remaining, 
+                                                        replace=False, 
+                                                        p=remaining_weights))
                 
+                # 선택된 번호들을 이전 선택 목록에 추가
+                previous_selections.update(selected)
                 recommendations.append((strategy, sorted(selected)))
         
         return recommendations, None
