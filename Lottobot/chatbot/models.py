@@ -18,3 +18,12 @@ class ChatHistory(models.Model):
     
     def __str__(self):
         return f"Chat by {self.user} at {self.created_at}"
+
+class Recommendation(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    numbers = models.JSONField()  # 추천된 번호들 저장
+    strategy = models.IntegerField()  # 사용된 전략
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']

@@ -25,8 +25,7 @@ ALLOWED_HOSTS = []
 # CSRF 설정
 CSRF_TRUSTED_ORIGINS = ["http://127.0.0.1:8000", "http://localhost:3000"]
 
-# 커스텀 유저 모델
-AUTH_USER_MODEL = 'accounts.User'
+
 
 # 애플리케이션 정의
 INSTALLED_APPS = [
@@ -74,7 +73,7 @@ ROOT_URLCONF = 'Lottobot.urls'
 TEMPLATES = [
    {
        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-       'DIRS': [BASE_DIR / 'templates'],
+       'DIRS': [os.path.join(BASE_DIR, 'templates')],
        'APP_DIRS': True,
        'OPTIONS': {
            'context_processors': [
