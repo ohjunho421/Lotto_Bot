@@ -2,7 +2,6 @@ from pathlib import Path
 from datetime import timedelta
 import os
 from dotenv import load_dotenv
-from celery.schedules import crontab
 
 # BASE_DIR 정의: settings.py 파일의 최상단에 위치해야 합니다.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -52,7 +51,7 @@ INSTALLED_APPS = [
 ]
 
 CRONJOBS = [
-    ('0 22 * * 6', 'chatbot.cron.update_lotto_data')  # 매주 토요일 22:00에 실행
+    ('0 22 * * 6', 'chatbot.cron.update_lotto_draws')  # 매주 토요일 22:00에 실행
 ]
 
 
